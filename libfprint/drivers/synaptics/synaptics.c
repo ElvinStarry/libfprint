@@ -1254,6 +1254,12 @@ dev_probe (FpDevice *device)
       return;
     }
 
+  if (!g_usb_device_reset (usb_dev, &error))
+    {
+      fp_dbg ("%s g_usb_device_reset failed %s", G_STRFUNC, error->message);
+      goto err_close;
+    }
+
   if (!g_usb_device_claim_interface (usb_dev, 0, 0, &error))
     goto err_close;
 
