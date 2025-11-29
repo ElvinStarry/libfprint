@@ -19,6 +19,7 @@ jobs:
             meson \
             ninja-build \
             pkg-config \
+            gtk-doc-tools \
             gobject-introspection \
             libgirepository1.0-dev \
             libglib2.0-dev \
