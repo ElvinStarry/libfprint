@@ -870,6 +870,9 @@ goodix55a2_dev_open (FpImageDevice *dev)
   FpiDeviceGoodix55a2 *self = FPI_DEVICE_GOODIX55A2 (dev);
   g_autoptr(GError) error = NULL;
 
+  if (!g_usb_device_set_configuration (fpi_device_get_usb_device (FP_DEVICE (dev)), 1, &error))
+    goto out;
+
   g_usb_device_claim_interface (fpi_device_get_usb_device (FP_DEVICE (dev)), 0, 0, &error);
   if (error == NULL)
     {
@@ -885,6 +888,7 @@ goodix55a2_dev_open (FpImageDevice *dev)
         }
     }
 
+out:
   fpi_image_device_open_complete (dev, g_steal_pointer (&error));
 }
 
