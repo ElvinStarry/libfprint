@@ -28,6 +28,12 @@
 
 #define GOODIX55A2_MAX_TRANSFER   32768
 
+typedef enum
+{
+  GOODIX55A2_REPLY_FLAG_NONE = 0,
+  GOODIX55A2_REPLY_FLAG_OPTIONAL_TAIL = 1 << 0,
+} Goodix55A2ReplyFlags;
+
 static const guint8 goodix55a2_expected_fw[] = "GF3206_RTSEC_APP_10056";
 
 static const guint8 goodix55a2_psk[32] = { 0 };
@@ -63,8 +69,8 @@ static const char goodix55a2_chip_config_hex[] =
   "30485800020032000802660000027c000038820080152a01820322"
   "00012024001400800001045c00000156000c245800050032000802"
   "660000027c000038820080162a0108005c00800054000001620038"
-  "0464001000660000027c000038820080152a0108005c0000015200"
-  "080054000001660000027c00013800e858";
+  "0464001000660000027c0001382a0108005c000001520008005400"
+  "0001660000027c00013800e858";
 
 static const char goodix55a2_fdt_mode_hex[] =
   "0d0180a08093809b80948090808f8094808b808a8083";
@@ -285,13 +291,14 @@ goodix55a2_build_tls (const guint8 *payload,
 }
 
 static gboolean
-goodix55a2_send_command (FpiDeviceGoodix55a2 *self,
-                         guint8               cmd,
-                         const guint8        *payload,
-                         gsize                payload_len,
-                         guint                reply_count,
-                         GPtrArray          **out_replies,
-                         GError             **error)
+goodix55a2_send_command_full (FpiDeviceGoodix55a2 *self,
+                              guint8               cmd,
+                              const guint8        *payload,
+                              gsize                payload_len,
+                              guint                reply_count,
+                              Goodix55A2ReplyFlags flags,
+                              GPtrArray          **out_replies,
+                              GError             **error)
 {
   g_autoptr(GByteArray) packet = NULL;
   GPtrArray *responses = NULL;
@@ -306,8 +313,22 @@ goodix55a2_send_command (FpiDeviceGoodix55a2 *self,
     {
       GByteArray *reply = NULL;
 
-      if (!goodix55a2_usb_bulk_read (self, &reply, GOODIX55A2_ACK_TIMEOUT, error))
+      g_autoptr(GError) read_error = NULL;
+
+      if (!goodix55a2_usb_bulk_read (self, &reply, GOODIX55A2_ACK_TIMEOUT, &read_error))
         {
+          if ((flags & GOODIX55A2_REPLY_FLAG_OPTIONAL_TAIL) &&
+              responses->len > 0 &&
+              g_error_matches (read_error,
+                               G_USB_DEVICE_ERROR,
+                               G_USB_DEVICE_ERROR_TIMED_OUT))
+            {
+              fp_dbg ("Command 0x%02x: timeout waiting for optional reply %u/%u",
+                      cmd, i + 1, reply_count);
+              break;
+            }
+
+          g_propagate_error (error, g_steal_pointer (&read_error));
           g_ptr_array_unref (responses);
           return FALSE;
         }
@@ -321,6 +342,25 @@ goodix55a2_send_command (FpiDeviceGoodix55a2 *self,
     g_ptr_array_unref (responses);
 
   return TRUE;
+}
+
+static gboolean
+goodix55a2_send_command (FpiDeviceGoodix55a2 *self,
+                         guint8               cmd,
+                         const guint8        *payload,
+                         gsize                payload_len,
+                         guint                reply_count,
+                         GPtrArray          **out_replies,
+                         GError             **error)
+{
+  return goodix55a2_send_command_full (self,
+                                       cmd,
+                                       payload,
+                                       payload_len,
+                                       reply_count,
+                                       GOODIX55A2_REPLY_FLAG_NONE,
+                                       out_replies,
+                                       error);
 }
 
 static gboolean
@@ -509,7 +549,14 @@ goodix55a2_initial_spi (FpiDeviceGoodix55a2 *self,
       !goodix55a2_send_command (self, 0x90, chip_cfg->data, chip_cfg->len, 2, NULL, error) ||
       !goodix55a2_send_command (self, 0xc4, drv_state, sizeof (drv_state), 1, NULL, error) ||
       !goodix55a2_send_command (self, 0xd2, zero2, sizeof (zero2), 2, NULL, error) ||
-      !goodix55a2_send_command (self, 0x36, fdt_cfg->data, fdt_cfg->len, 2, NULL, error))
+      !goodix55a2_send_command_full (self,
+                                     0x36,
+                                     fdt_cfg->data,
+                                     fdt_cfg->len,
+                                     2,
+                                     GOODIX55A2_REPLY_FLAG_OPTIONAL_TAIL,
+                                     NULL,
+                                     error))
     return FALSE;
 
   return TRUE;
