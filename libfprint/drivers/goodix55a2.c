@@ -600,7 +600,15 @@ goodix55a2_tls_prepare (FpiDeviceGoodix55a2 *self,
     }
 
   SSL_CTX_set_psk_server_callback (self->ssl_ctx, goodix55a2_psk_callback);
-  SSL_CTX_set_cipher_list (self->ssl_ctx, "PSK-AES256-CBC-SHA:PSK-AES128-CBC-SHA");
+  SSL_CTX_set_min_proto_version (self->ssl_ctx, TLS1_VERSION);
+  SSL_CTX_set_max_proto_version (self->ssl_ctx, TLS1_2_VERSION);
+  if (SSL_CTX_set_cipher_list (self->ssl_ctx,
+                               "PSK-AES128-CBC-SHA256:PSK-AES256-CBC-SHA:PSK-AES128-CBC-SHA") != 1)
+    {
+      g_set_error (error, FP_DEVICE_ERROR, FP_DEVICE_ERROR_GENERAL,
+                   "Unable to configure TLS ciphers");
+      return FALSE;
+    }
 
   self->ssl = SSL_new (self->ssl_ctx);
   if (!self->ssl)
