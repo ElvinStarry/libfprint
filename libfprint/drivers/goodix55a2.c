@@ -516,6 +516,15 @@ goodix55a2_initial_spi (FpiDeviceGoodix55a2 *self,
   return TRUE;
 }
 
+static gboolean
+goodix55a2_request_finger_detection (FpiDeviceGoodix55a2 *self,
+                                     GError             **error)
+{
+  g_autoptr(GByteArray) wait_cfg = goodix55a2_bytes_from_hex (goodix55a2_wait_finger_hex);
+
+  return goodix55a2_send_command (self, 0x32, wait_cfg->data, wait_cfg->len, 2, NULL, error);
+}
+
 static unsigned int
 goodix55a2_psk_callback (SSL         *ssl,
                          const char  *identity,
@@ -774,8 +783,12 @@ goodix55a2_fill_image (FpImage       *image,
           guint src_y = col;
           guint src_x = GOODIX55A2_SENSOR_WIDTH - 1 - row;
           guint16 sample = values[src_y * GOODIX55A2_SENSOR_WIDTH + src_x];
-          guint8 pixel = CLAMP (sample >> 4, 0, 255);
-          image->data[row * GOODIX55A2_SENSOR_HEIGHT + col] = pixel;
+          guint16 value = sample >> 4;
+
+          if (value > 255)
+            value = 255;
+
+          image->data[row * GOODIX55A2_SENSOR_HEIGHT + col] = (guint8) value;
         }
     }
 }
@@ -839,7 +852,8 @@ goodix55a2_handle_capture (FpiDeviceGoodix55a2 *self)
   g_autoptr(FpImage) image = NULL;
   FpImageDevice *dev = FP_IMAGE_DEVICE (self);
 
-  if (!goodix55a2_capture_frame (self, &image, &error))
+  if (!goodix55a2_request_finger_detection (self, &error) ||
+      !goodix55a2_capture_frame (self, &image, &error))
     {
       fpi_image_device_session_error (dev, g_steal_pointer (&error));
       return;
