@@ -23,7 +23,11 @@
 
 #define GOODIX55A2_FRAME_PIXELS   (GOODIX55A2_SENSOR_WIDTH * GOODIX55A2_SENSOR_HEIGHT)
 #define GOODIX55A2_PACKED_FRAME   ((GOODIX55A2_FRAME_PIXELS * 12) / 8)
-#define GOODIX55A2_FRAME_CHECKSUM 4
+#define GOODIX55A2_FRAME_CHECKSUM  4
+
+#define GOODIX55A2_AVG_FRAMES   6
+#define GOODIX55A2_AVG_DROP     2
+#define GOODIX55A2_AVG_SLEEP_US 8000 //8ms
 
 #define GOODIX55A2_CMD_TIMEOUT    10000
 #define GOODIX55A2_ACK_TIMEOUT    10000
@@ -167,6 +171,15 @@ goodix55a2_bytes_from_hex (const char *hex)
 
   return bytes;
 }
+
+static inline guint8
+goodix55a2_clamp_u8 (int v)
+{
+  if (v < 0) return 0;
+  if (v > 255) return 255;
+  return (guint8) v;
+}
+
 static void
 goodix55a2_detrend_columns_u8 (guint8 *img, int w, int h)
 {
@@ -191,11 +204,38 @@ goodix55a2_detrend_columns_u8 (guint8 *img, int w, int h)
       for (int y = 0; y < h; y++)
         {
           int v = (int) img[y * w + x] - bias;
-          if (v < 0) v = 0;
-          if (v > 255) v = 255;   // [0,255]
-          img[y * w + x] = (guint8) v;
+          img[y * w + x] = goodix55a2_clamp_u8 (v);
         }
     }
+}
+
+static void
+goodix55a2_contrast_stretch_u8 (guint8 *img, int w, int h)
+{
+  int hist[256] = {0};
+  int n = 0;
+
+  for (int i = 0; i < w*h; i++) {
+    guint8 v = img[i];
+    if (v == 0) continue;
+    hist[v]++; n++;
+  }
+  if (n < 100) return;
+
+  int lo_cnt = (int)(n * 0.02);
+  int hi_cnt = (int)(n * 0.98);
+
+  int cum = 0, lo = 0, hi = 255;
+  for (int v = 0; v < 256; v++) { cum += hist[v]; if (cum >= lo_cnt) { lo = v; break; } }
+  cum = 0;
+  for (int v = 0; v < 256; v++) { cum += hist[v]; if (cum >= hi_cnt) { hi = v; break; } }
+
+  if (hi <= lo + 5) return;
+
+  for (int i = 0; i < w*h; i++) {
+    int out = ((int)img[i] - lo) * 255 / (hi - lo);
+    img[i] = goodix55a2_clamp_u8 (out);
+  }
 }
 
 static gboolean
@@ -877,13 +917,28 @@ goodix55a2_fill_image (FpImage       *image,
 
           image->data[row * GOODIX55A2_SENSOR_HEIGHT + col] = (guint8) value;
         }
-    }
+  }
+}
+
+static void
+goodix55a2_prepare_frame_for_match (FpImage *image)
+{
+  const int w = GOODIX55A2_FRAME_WIDTH;
+  const int h = GOODIX55A2_FRAME_HEIGHT;
+
+  goodix55a2_detrend_columns_u8 (image->data, w, h);
+}
+
+static void
+goodix55a2_finalize_frame (FpImage *image)
+{
+  goodix55a2_contrast_stretch_u8 (image->data, GOODIX55A2_FRAME_WIDTH, GOODIX55A2_FRAME_HEIGHT);
 }
 
 static gboolean
-goodix55a2_capture_frame (FpiDeviceGoodix55a2 *self,
-                          FpImage            **out_image,
-                          GError             **error)
+goodix55a2_capture_frame_once (FpiDeviceGoodix55a2 *self,
+                               FpImage            **out_image,
+                               GError             **error)
 {
   static const guint8 capture_req[] = { 0x01, 0x00 };
   g_autoptr(GPtrArray) replies = NULL;
@@ -926,12 +981,61 @@ goodix55a2_capture_frame (FpiDeviceGoodix55a2 *self,
 
   FpImage *image = fp_image_new (GOODIX55A2_FRAME_WIDTH, GOODIX55A2_FRAME_HEIGHT);
   goodix55a2_fill_image (image, samples);
-  goodix55a2_detrend_columns_u8 (image->data,
-                                 GOODIX55A2_FRAME_WIDTH,
-                                 GOODIX55A2_FRAME_HEIGHT);
   image->ppmm = GOODIX55A2_PPMM;
   *out_image = image;
 
+  return TRUE;
+}
+
+static gboolean
+goodix55a2_capture_frame (FpiDeviceGoodix55a2 *self,
+                          FpImage            **out_image,
+                          GError             **error)
+{
+  const int w = GOODIX55A2_FRAME_WIDTH;
+  const int h = GOODIX55A2_FRAME_HEIGHT;
+  const int npix = w * h;
+
+  g_autofree guint32 *acc = g_new0 (guint32, npix);
+  int used = 0;
+
+  for (int i = 0; i < GOODIX55A2_AVG_FRAMES; i++)
+    {
+      g_autoptr(FpImage) img = NULL;
+
+      if (!goodix55a2_capture_frame_once (self, &img, error))
+        return FALSE;
+
+      if (i < GOODIX55A2_AVG_DROP) {
+        g_usleep (GOODIX55A2_AVG_SLEEP_US);
+        continue;
+      }
+
+      goodix55a2_prepare_frame_for_match (img);
+
+      for (int p = 0; p < npix; p++)
+        acc[p] += img->data[p];
+
+      used++;
+      g_usleep (GOODIX55A2_AVG_SLEEP_US);
+    }
+
+  if (used <= 0)
+    {
+      g_set_error (error, FP_DEVICE_ERROR, FP_DEVICE_ERROR_GENERAL,
+                   "No frames collected for averaging");
+      return FALSE;
+    }
+
+  FpImage *avg = fp_image_new (w, h);
+  avg->ppmm = GOODIX55A2_PPMM;
+
+  for (int p = 0; p < npix; p++)
+    avg->data[p] = (guint8) (acc[p] / (guint32) used);
+
+  goodix55a2_finalize_frame (avg);
+
+  *out_image = avg;
   return TRUE;
 }
 
