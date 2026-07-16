@@ -134,6 +134,10 @@ driver_sources = {
         'drivers/goodixmoc/goodix.c',
         'drivers/goodixmoc/goodix_proto.c',
     ),
+    'goodix55a2' : files(
+        'drivers/goodix55a2.c',
+        'drivers/goodix55a2-image.c',
+    ),
     'fpcmoc' : files('drivers/fpcmoc/fpc.c'),
     'realtek' : files('drivers/realtek/realtek.c'),
     'focaltech_moc' : files('drivers/focaltech_moc/focaltech_moc.c'),

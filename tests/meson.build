@@ -291,6 +291,7 @@ unit_tests = [
     'fpi-device',
     'fpi-ssm',
     'fpi-assembling',
+    'goodix55a2',
 ]
 
 if 'virtual_image' in drivers
@@ -300,7 +301,10 @@ if 'virtual_image' in drivers
     ]
 endif
 
-unit_tests_deps = { 'fpi-assembling' : [cairo_dep] }
+unit_tests_deps = {
+    'fpi-assembling' : [cairo_dep],
+    'goodix55a2' : [],
+}
 
 foreach test_name: unit_tests
     if unit_tests_deps.has_key(test_name)
@@ -328,8 +332,13 @@ foreach test_name: unit_tests
     endif
 
     basename = 'test-' + test_name
+    test_sources = [basename + '.c']
+    if test_name == 'goodix55a2'
+        test_sources += '../libfprint/drivers/goodix55a2-image.c'
+    endif
+
     test_exe = executable(basename,
-        sources: basename + '.c',
+        sources: test_sources,
         dependencies: [ libfprint_private_dep ] + extra_deps,
         c_args: common_cflags,
         link_whole: test_utils,
