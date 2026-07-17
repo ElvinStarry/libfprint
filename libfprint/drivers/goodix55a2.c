@@ -473,15 +473,9 @@ check_command_replies (FpiDeviceGoodix55a2 *self,
     }
 
   reply = g_ptr_array_index (self->last_replies, 0);
-  if (!goodix55a2_parse_command_reply (reply->data, reply->len, 0xb0,
-                                       &payload, &payload_len, error))
+  if (!goodix55a2_parse_command_ack (reply->data, reply->len,
+                                     command, error))
     return FALSE;
-  if (payload_len != 2 || payload[0] != command || payload[1] != 1)
-    {
-      g_set_error_literal (error, FP_DEVICE_ERROR, FP_DEVICE_ERROR_PROTO,
-                           "Invalid Goodix command acknowledgement");
-      return FALSE;
-    }
 
   if (reply_count == 2)
     {
@@ -652,9 +646,7 @@ capture_run_state (FpiSsm *ssm,
 
     case CAPTURE_DECRYPT:
       {
-        const guint8 *ack_payload;
         const guint8 *tls_payload;
-        gsize ack_len;
         gsize tls_len;
         GByteArray *reply;
         g_autoptr(GByteArray) plaintext = g_byte_array_sized_new (
@@ -664,9 +656,8 @@ capture_run_state (FpiSsm *ssm,
           goto invalid_capture;
 
         reply = g_ptr_array_index (self->last_replies, 0);
-        if (!goodix55a2_parse_command_reply (reply->data, reply->len, 0xb0,
-                                             &ack_payload, &ack_len, &error) ||
-            ack_len != 2 || ack_payload[0] != 0x20 || ack_payload[1] != 1)
+        if (!goodix55a2_parse_command_ack (reply->data, reply->len,
+                                           0x20, &error))
           goto capture_failure;
 
         reply = g_ptr_array_index (self->last_replies, 1);
@@ -951,9 +942,8 @@ open_run_state (FpiSsm *ssm,
             goto failure;
           }
         reply = g_ptr_array_index (self->last_replies, 0);
-        if (!goodix55a2_parse_command_reply (reply->data, reply->len, 0xb0,
-                                             &payload, &payload_len, &error) ||
-            payload_len != 2 || payload[0] != 0xd0 || payload[1] != 1)
+        if (!goodix55a2_parse_command_ack (reply->data, reply->len,
+                                           0xd0, &error))
           goto failure;
         reply = g_ptr_array_index (self->last_replies, 1);
         if (!goodix55a2_parse_tls_reply (reply->data, reply->len,

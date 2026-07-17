@@ -49,6 +49,10 @@ gboolean goodix55a2_parse_command_reply (const guint8  *data,
                                          const guint8 **payload,
                                          gsize         *payload_len,
                                          GError       **error);
+gboolean goodix55a2_parse_command_ack (const guint8 *data,
+                                       gsize         length,
+                                       guint8        acknowledged_command,
+                                       GError      **error);
 gboolean goodix55a2_parse_tls_reply (const guint8  *data,
                                      gsize          length,
                                      const guint8 **payload,

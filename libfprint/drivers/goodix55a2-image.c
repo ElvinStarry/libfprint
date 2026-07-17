@@ -226,6 +226,31 @@ goodix55a2_parse_command_reply (const guint8  *data,
 }
 
 gboolean
+goodix55a2_parse_command_ack (const guint8 *data,
+                              gsize         length,
+                              guint8        acknowledged_command,
+                              GError      **error)
+{
+  const guint8 *payload;
+  gsize payload_len;
+
+  if (!goodix55a2_parse_command_reply (data, length, 0xb0,
+                                       &payload, &payload_len, error))
+    return FALSE;
+
+  /* Bit 1 is set before TLS is established; bit 0 marks a valid ACK. */
+  if (payload_len != 2 || payload[0] != acknowledged_command ||
+      !(payload[1] & 0x01))
+    {
+      g_set_error_literal (error, FP_DEVICE_ERROR, FP_DEVICE_ERROR_PROTO,
+                           "Invalid Goodix command acknowledgement");
+      return FALSE;
+    }
+
+  return TRUE;
+}
+
+gboolean
 goodix55a2_parse_tls_reply (const guint8  *data,
                             gsize          length,
                             const guint8 **payload,

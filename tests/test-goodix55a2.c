@@ -143,6 +143,33 @@ test_reply_parser (void)
 }
 
 static void
+test_command_ack_parser (void)
+{
+  static const guint8 established_ack[] = {
+    0xa0, 0x06, 0x00, 0xa6, 0xb0, 0x03, 0x00, 0xa8, 0x01, 0x4e,
+  };
+  static const guint8 pre_tls_ack[] = {
+    0xa0, 0x06, 0x00, 0xa6, 0xb0, 0x03, 0x00, 0xa8, 0x03, 0x4c,
+  };
+  static const guint8 invalid_ack[] = {
+    0xa0, 0x06, 0x00, 0xa6, 0xb0, 0x03, 0x00, 0xa8, 0x02, 0x4d,
+  };
+  g_autoptr(GError) error = NULL;
+
+  g_assert_true (goodix55a2_parse_command_ack (
+    established_ack, sizeof (established_ack), 0xa8, &error));
+  g_assert_no_error (error);
+
+  g_assert_true (goodix55a2_parse_command_ack (
+    pre_tls_ack, sizeof (pre_tls_ack), 0xa8, &error));
+  g_assert_no_error (error);
+
+  g_assert_false (goodix55a2_parse_command_ack (
+    invalid_ack, sizeof (invalid_ack), 0xa8, &error));
+  g_assert_error (error, FP_DEVICE_ERROR, FP_DEVICE_ERROR_PROTO);
+}
+
+static void
 test_unpack_frame (void)
 {
   g_autofree guint8 *packed = g_malloc (GOODIX55A2_PACKED_FRAME_SIZE);
@@ -390,6 +417,8 @@ main (int argc, char *argv[])
                    test_endpoint_selection);
   g_test_add_func ("/goodix55a2/protocol/reply-parser",
                    test_reply_parser);
+  g_test_add_func ("/goodix55a2/protocol/command-ack-parser",
+                   test_command_ack_parser);
   g_test_add_func ("/goodix55a2/image/unpack", test_unpack_frame);
   g_test_add_func ("/goodix55a2/image/swipe-assembly",
                    test_swipe_assembly);
