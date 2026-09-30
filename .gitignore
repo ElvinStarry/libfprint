@@ -1,3 +1,7 @@
 *.o
 *.swp
 _build
+/packaging/arch/src/
+/packaging/arch/pkg/
+/packaging/arch/libfprint/
+/packaging/arch/*.pkg.tar.*

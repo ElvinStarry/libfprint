@@ -1,0 +1,38 @@
+# Maintainer: Elvin Starry <chan@frostleaf.dev>
+pkgname=libfprint-goodix55a2-git
+pkgver=1.94.100
+pkgrel=1
+pkgdesc='Fingerprint reader library with Goodix 27c6:55a2 support'
+arch=('x86_64')
+url='https://github.com/ElvinStarry/libfprint'
+license=('LGPL-2.1-or-later')
+depends=('libgcc' 'glib2' 'glibc' 'libgudev' 'libgusb' 'openssl' 'pixman')
+makedepends=('git' 'meson' 'ninja' 'gobject-introspection')
+checkdepends=('python-gobject' 'python-cairo')
+provides=('libfprint' 'libfprint-2.so')
+conflicts=('libfprint')
+options=('!debug')
+source=('libfprint::git+https://github.com/ElvinStarry/libfprint.git#branch=new')
+sha256sums=('SKIP')
+
+pkgver() {
+  cd "$srcdir/libfprint"
+  local version
+  version=$(sed -n "s/^[[:space:]]*version: '\([^']*\)',/\1/p" meson.build | head -n1)
+  printf '%s.r%s.g%s' "$version" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+build() {
+  meson setup "$srcdir/build" "$srcdir/libfprint" \
+    --prefix=/usr --libdir=lib --libexecdir=lib --buildtype=release \
+    -Ddrivers=all -Ddoc=false -Dinstalled-tests=false -Dudev_hwdb=enabled
+  meson compile -C "$srcdir/build"
+}
+
+check() {
+  meson test -C "$srcdir/build" --print-errorlogs
+}
+
+package() {
+  DESTDIR="$pkgdir" meson install -C "$srcdir/build" --no-rebuild
+}
