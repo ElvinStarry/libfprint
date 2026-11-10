@@ -1460,8 +1460,12 @@ dev_deactivate (FpImageDevice *device)
 
   self->deactivating = TRUE;
   clear_swipe_frames (self);
-  if (self->io_cancellable)
-    g_cancellable_cancel (self->io_cancellable);
+  /* Finish the current command and consume its complete reply before stopping.
+   * Cancelling the USB read leaves a TLS image in the endpoint; the next open
+   * then reads that image as its firmware reply and may wedge the device.
+   * scan_run_state/scan_complete observe deactivating at the frame boundary.
+   * The existing USB transfer timeout bounds an unresponsive device.
+   */
 
   if (!self->scan_ssm)
     {
